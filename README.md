@@ -41,20 +41,20 @@ What it does
 First, install dependencies   
 ```bash
 # clone project   
-git clone https://github.com/YourGithubName/deep-learning-project-template
+git clone https://github.com/TalhaUsuf/SupCon_loss.git
 
 # install project   
-cd deep-learning-project-template 
+cd SupCon_loss
 pip install -e .   
 pip install -r requirements.txt
  ```   
- Next, navigate to any file and run it.   
+ Next, run the trainig with:   
  ```bash
 # module folder
 cd project
 
 # run module (example: mnist as your main contribution)   
-python lit_classifier_main.py    
+python cifar_supcon.py --embed_sz 128 --gamma 0.1 --steps 3 4 --data_dir dataset --bs 8 --img_sz 20 --resize 25 --auto_scale_batch_size True     
 ```
 
 ## Imports
