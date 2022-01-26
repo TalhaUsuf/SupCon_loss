@@ -3,7 +3,7 @@ import pytorch_lightning as pl
 from torch.utils.data import random_split, DataLoader
 from argparse import ArgumentParser
 # Note - you must have torchvision installed for this example
-from torchvision.datasets import MNIST
+from torchvision.datasets import CIFAR10
 from torchvision import transforms
 from typing import Optional
 
@@ -35,19 +35,19 @@ from pathlib import Path
 # print(tensor.shape)
 
 
-class MNISTDataModule(pl.LightningDataModule):
+class CIFAR_DataModule(pl.LightningDataModule):
     def __init__(self, data_dir: str, img_sz : int, resize : int, bs : int, *args, **kwargs):
         super().__init__()
         self.data_dir = data_dir
         self.img_sz = img_sz
         self.resize = resize
-        self.bs = bs
+        self.batch_size = bs
         self.transform = transforms.Compose([
                                     transforms.Resize(size=self.resize, interpolation=Image.BICUBIC),
                                     transforms.CenterCrop(size=(self.img_sz, self.img_sz)),
                                     transforms.ToTensor(),
-                                    # transforms.Normalize(mean=[0.4850, 0.4560, 0.4060], std=[0.2290, 0.2240, 0.2250])
-                                    transforms.Normalize(mean=[0.4850,], std=[0.2290,])
+                                    transforms.Normalize(mean=[0.4850, 0.4560, 0.4060], std=[0.2290, 0.2240, 0.2250])
+                                    # transforms.Normalize(mean=[0.4850,], std=[0.2290,])
         ])
         # create an empty dir. if not exists
         Path(self.data_dir).mkdir(parents=True, exist_ok=True)
@@ -56,39 +56,40 @@ class MNISTDataModule(pl.LightningDataModule):
         # self.dims = (1, 28, 28)
         
         # try updating the lightning to see if it works
-        # self.save_hyperparameters()
+        self.save_hyperparameters()
         
 
     def prepare_data(self):
         # download
-        MNIST(self.data_dir, train=True, download=True)
-        MNIST(self.data_dir, train=False, download=True)
+        CIFAR10(self.data_dir, train=True, download=True)
+        CIFAR10(self.data_dir, train=False, download=True)
 
     def setup(self, stage: Optional[str] = None):
 
         # Assign train/val datasets for use in dataloaders
         if stage == "fit" or stage is None:
-            mnist_full = MNIST(self.data_dir, train=True, transform=self.transform)
-            self.mnist_train, self.mnist_val = random_split(mnist_full, [55000, 5000])
+            mnist_full = CIFAR10(self.data_dir, train=True, transform=self.transform)
+            print(f"\n\n dataset size --> {len(mnist_full)} \n\n")
+            self.mnist_train, self.mnist_val = random_split(mnist_full, [45000, 5000])
 
             # Optionally...
-            # self.dims = tuple(self.mnist_train[0][0].shape) # X, Y ===> X.shape
+            self.dims = tuple(self.mnist_train[0][0].shape) # X, Y ===> X.shape
 
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
-            self.mnist_test = MNIST(self.data_dir, train=False, transform=self.transform)
+            self.mnist_test = CIFAR10(self.data_dir, train=False, transform=self.transform)
 
             # Optionally...
             # self.dims = tuple(self.mnist_test[0][0].shape)
 
     def train_dataloader(self):
-        return DataLoader(self.mnist_train, batch_size=self.bs, num_workers=4)
+        return DataLoader(self.mnist_train, batch_size=self.hparams.batch_size, num_workers=4)
 
     def val_dataloader(self):
-        return DataLoader(self.mnist_val, batch_size=self.bs, num_workers=4)
+        return DataLoader(self.mnist_val, batch_size=self.hparams.batch_size, num_workers=4)
 
     def test_dataloader(self):
-        return DataLoader(self.mnist_test, batch_size=self.bs)
+        return DataLoader(self.mnist_test, batch_size=self.hparams.batch_size)
 
     @staticmethod
     def add_model_specific_args(parent_parser):

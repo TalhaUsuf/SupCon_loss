@@ -6,15 +6,19 @@ from torch.optim.lr_scheduler import MultiStepLR
 import torch
 import pytorch_lightning as pl
 from torch.nn import functional as F
-from torch.utils.data import DataLoader, random_split
+from pytorch_lightning.callbacks import ModelCheckpoint
+# from torch.utils.data import DataLoader, random_split
 from typing import List
+from pytorch_lightning.loggers import WandbLogger
 from torchvision.datasets.mnist import MNIST
 from torchvision import transforms
 import timm
-from mnist_dm import MNISTDataModule
+from cifar_dm import CIFAR_DataModule
 from pytorch_metric_learning.losses import SupConLoss
+from pytorch_lightning.loggers import WandbLogger
+import wandb
 
-
+# wandb.login()
 
 class LitClassifier(pl.LightningModule):
     def __init__(self, embed_sz : int , steps : List, lr : float = 1e-3,  gamma : float = 0.1, **kwargs):
@@ -29,6 +33,9 @@ class LitClassifier(pl.LightningModule):
         self.backbone.train()
         in_features = self.backbone.classifier.in_features
         self.project = torch.nn.Linear(in_features, self.embed_sz)
+        
+        self.backbone.classifier = torch.nn.Identity()        
+
         self.supcon_head = SupConLoss(temperature=0.1)
         # self.activation = torch.nn.LeakyReLU(negative_slope=0.1)
 
@@ -101,8 +108,15 @@ class LitClassifier(pl.LightningModule):
 
 def cli_main():
     pl.seed_everything(1000)
+    wandb.init()
+    wandb.login()
 
-    # ------------
+    
+    checkpoint_callback = ModelCheckpoint(filename="checkpoints/cifar10-{epoch:02d}-{val_loss:.6f}", monitor='val_loss', mode='min', )
+    wandb_logger = WandbLogger(project='CIFAR-10', # group runs in "MNIST" project
+                           log_model='all', # log all new checkpoints during training
+                            name="supcon loss")
+    # ------------          
     # args
     # ------------
     parser = ArgumentParser()
@@ -113,9 +127,10 @@ def cli_main():
     # model specific args
     parser = LitClassifier.add_model_specific_args(parser)
     # dataset specific args
-    parser = MNISTDataModule.add_model_specific_args(parser)
+    parser = CIFAR_DataModule.add_model_specific_args(parser)
     args = parser.parse_args()
-
+    # log args to wandb
+    wandb.config.update(vars(args))
     # ------------
     # data
     # ------------
@@ -126,22 +141,25 @@ def cli_main():
     # train_loader = DataLoader(mnist_train, batch_size=args.batch_size)
     # val_loader = DataLoader(mnist_val, batch_size=args.batch_size)
     # test_loader = DataLoader(mnist_test, batch_size=args.batch_size)
-    dm = MNISTDataModule(**vars(args)) # vars converts Namespace --> dict, ** converts to kwargs
+    dm = CIFAR_DataModule(**vars(args)) # vars converts Namespace --> dict, ** converts to kwargs
     # ------------
     # model
     # ------------
     model = LitClassifier(**vars(args))
-
+    wandb_logger.watch(model)
     # ------------
     # training
     # ------------
     trainer = pl.Trainer.from_argparse_args(args)
+    trainer.callbacks.append(checkpoint_callback)
+    trainer.logger = wandb_logger
+    # trainer.tune(model)
     trainer.fit(model, dm)
 
     # ------------
     # testing
     # ------------
-    trainer.test()
+    # trainer.test()
 
 
 if __name__ == '__main__':
