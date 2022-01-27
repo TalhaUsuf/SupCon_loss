@@ -23,9 +23,14 @@ import wandb
 # wandb.login()
 
 class LitClassifier(pl.LightningModule):
-    def __init__(self, embed_sz : int , steps : List, lr : float = 1e-3,  gamma : float = 0.1, **kwargs):
+    def __init__(self, embed_sz : int , 
+                        steps : List, 
+                        warmup_epochs : int, 
+                        lr : float = 1e-3,  
+                        gamma : float = 0.1, **kwargs):
         super().__init__()
         self.embed_sz = embed_sz
+        self.warmup_epochs = warmup_epochs
         self.lr = lr
         self.gamma = gamma
         self.steps = [int(k) for k in steps]
@@ -85,7 +90,7 @@ class LitClassifier(pl.LightningModule):
         # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         #     opt, self.hparams.max_epochs, eta_min=0
         # )
-        lr_scheduler = LinearWarmupCosineAnnealingLR(opt, self.trainer.warmup_epochs, self.trainer.max_epochs, warmup_start_lr=0.0, eta_min=0.0, last_epoch=- 1)
+        lr_scheduler = LinearWarmupCosineAnnealingLR(opt, self.warmup_epochs, self.trainer.max_epochs, warmup_start_lr=0.0, eta_min=0.0, last_epoch=- 1)
         return [opt], [lr_scheduler]
 
         # return {"optimizer": opt, 
@@ -113,6 +118,7 @@ class LitClassifier(pl.LightningModule):
         parser.add_argument('--lr', type=float, default=0.0001)
         parser.add_argument('--gamma', type=float, default=0.1)
         parser.add_argument('--steps', nargs='+', required=True)
+        parser.add_argument('--warmup_epochs', type=int, default=1)
         return parser
 
 
