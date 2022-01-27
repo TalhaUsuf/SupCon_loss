@@ -36,12 +36,12 @@ from pathlib import Path
 
 
 class CIFAR_DataModule(pl.LightningDataModule):
-    def __init__(self, data_dir: str, img_sz : int, resize : int, bs : int, *args, **kwargs):
+    def __init__(self, data_dir: str, img_sz : int, resize : int, batch_size : int, *args, **kwargs):
         super().__init__()
         self.data_dir = data_dir
         self.img_sz = img_sz
         self.resize = resize
-        self.batch_size = bs
+        self.batch_size = batch_size
         self.transform = transforms.Compose([
                                     transforms.Resize(size=self.resize, interpolation=Image.BICUBIC),
                                     transforms.CenterCrop(size=(self.img_sz, self.img_sz)),
@@ -57,7 +57,9 @@ class CIFAR_DataModule(pl.LightningDataModule):
         
         # try updating the lightning to see if it works
         self.save_hyperparameters()
-        
+        print("==================================")
+        print(self.hparams)
+        print("==================================")
 
     def prepare_data(self):
         # download
@@ -95,7 +97,7 @@ class CIFAR_DataModule(pl.LightningDataModule):
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         parser.add_argument('--data_dir', type=str, default='./dataset')
-        parser.add_argument('--bs', type=int, default=8)
+        parser.add_argument('--batch_size', type=int, default=8)
         parser.add_argument('--img_sz', type=int, default=224, help='size of image')
         parser.add_argument('--resize', type=int, default=250, help='resize the image to this size after which center crop is performed @ --img_sz flag')
         return parser

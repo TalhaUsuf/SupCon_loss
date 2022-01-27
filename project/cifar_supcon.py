@@ -16,6 +16,8 @@ import timm
 from cifar_dm import CIFAR_DataModule
 from pytorch_metric_learning.losses import SupConLoss
 from pytorch_lightning.loggers import WandbLogger
+from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
+from pytorch_lightning.callbacks import LearningRateMonitor
 import wandb
 
 # wandb.login()
@@ -57,7 +59,7 @@ class LitClassifier(pl.LightningModule):
         # for logging to the loggers
         self.log("train_loss", loss) 
 
-        return {"train_loss":loss}
+        return {"loss":loss}
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
@@ -65,7 +67,7 @@ class LitClassifier(pl.LightningModule):
         loss = self.supcon_head(embeds, y)
         # for logging to the loggers
         self.log('val_loss', loss)
-        return {"val_loss":loss}
+        return {"loss":loss}
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -76,24 +78,32 @@ class LitClassifier(pl.LightningModule):
 
     def configure_optimizers(self):
         opt = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
-        sched = MultiStepLR(opt, milestones=self.hparams.steps, gamma=self.hparams.gamma)
+        # sched = MultiStepLR(opt, milestones=self.hparams.steps, gamma=self.hparams.gamma)
+        
+        
 
-        return {"optimizer": opt, 
-                "scheduler": 
-                            {
-                                    # REQUIRED: The scheduler instance
-                                    "scheduler": sched,
-                                    # The unit of the scheduler's step size, could also be 'step'.
-                                    # 'epoch' updates the scheduler on epoch end whereas 'step'
-                                    # updates it after a optimizer update.
-                                    "interval": "epoch",
-                                    # How many epochs/steps should pass between calls to
-                                    # `scheduler.step()`. 1 corresponds to updating the learning
-                                    # rate after every epoch/step.
-                                    "frequency": 1,
+        # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        #     opt, self.hparams.max_epochs, eta_min=0
+        # )
+        lr_scheduler = LinearWarmupCosineAnnealingLR(opt, self.trainer.warmup_epochs, self.trainer.max_epochs, warmup_start_lr=0.0, eta_min=0.0, last_epoch=- 1)
+        return [opt], [lr_scheduler]
+
+        # return {"optimizer": opt, 
+        #         "lr_scheduler": 
+        #                     {
+        #                             # REQUIRED: The scheduler instance
+        #                             "scheduler": sched,
+        #                             # The unit of the scheduler's step size, could also be 'step'.
+        #                             # 'epoch' updates the scheduler on epoch end whereas 'step'
+        #                             # updates it after a optimizer update.
+        #                             "interval": "epoch",
+        #                             # How many epochs/steps should pass between calls to
+        #                             # `scheduler.step()`. 1 corresponds to updating the learning
+        #                             # rate after every epoch/step.
+        #                             "frequency": 1,
                                     
-                            }
-        }
+        #                     }
+        # }
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -109,10 +119,12 @@ class LitClassifier(pl.LightningModule):
 def cli_main():
     pl.seed_everything(1000)
     wandb.init()
+    wandb.run.log_code(".") # all python files uploaded
     wandb.login()
 
     
     checkpoint_callback = ModelCheckpoint(filename="checkpoints/cifar10-{epoch:02d}-{val_loss:.6f}", monitor='val_loss', mode='min', )
+    lr_callback = LearningRateMonitor(logging_interval="step")
     wandb_logger = WandbLogger(project='CIFAR-10', # group runs in "MNIST" project
                            log_model='all', # log all new checkpoints during training
                             name="supcon loss")
@@ -129,8 +141,7 @@ def cli_main():
     # dataset specific args
     parser = CIFAR_DataModule.add_model_specific_args(parser)
     args = parser.parse_args()
-    # log args to wandb
-    wandb.config.update(vars(args))
+    
     # ------------
     # data
     # ------------
@@ -152,8 +163,17 @@ def cli_main():
     # ------------
     trainer = pl.Trainer.from_argparse_args(args)
     trainer.callbacks.append(checkpoint_callback)
+    trainer.callbacks.append(lr_callback)
     trainer.logger = wandb_logger
-    # trainer.tune(model)
+    trainer.tune(model, dm)
+
+    # log args to wandb
+    args.batch_size = model.hparams.get('batch_size')
+    # dm.hparams.batch_size = args.batch_size
+    dm.hparams.batch_size = 512
+    print(f"\n\n batch size -----> {args.batch_size}\n\n")
+    wandb.config.update(vars(args))
+
     trainer.fit(model, dm)
 
     # ------------
