@@ -14,10 +14,10 @@ from torchvision.datasets.mnist import MNIST
 from torchvision import transforms
 import timm
 from cifar_dm import CIFAR_DataModule
-from pytorch_metric_learning.losses import SupConLoss
+from pytorch_metric_learning.losses import SupConLoss, ArcFaceLoss
 from pytorch_lightning.loggers import WandbLogger
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
-from pytorch_lightning.callbacks import LearningRateMonitor
+from pytorch_lightning.callbacks import LearningRateMonitor, QuantizationAwareTraining
 import wandb
 
 # wandb.login()
@@ -43,7 +43,8 @@ class LitClassifier(pl.LightningModule):
         
         self.backbone.classifier = torch.nn.Identity()        
 
-        self.supcon_head = SupConLoss(temperature=0.1)
+        # self.supcon_head = SupConLoss(temperature=0.1)
+        self.arcface_head = ArcFaceLoss(num_classes=10, embedding_size=self.embed_sz, margin=28.6, scale=64)
         # self.activation = torch.nn.LeakyReLU(negative_slope=0.1)
 
 
@@ -55,12 +56,14 @@ class LitClassifier(pl.LightningModule):
 
         return x
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx, optimizer_idx):
         x, y = batch
         # print(x.shape)
         # print(y.shape)
         embeddings = self(x)
-        loss = self.supcon_head(embeddings, y)
+        loss = self.arcface_head(embeddings, y)
+        # loss = self.supcon_head(embeddings, y)
+
         # for logging to the loggers
         self.log("train_loss", loss) 
 
@@ -69,7 +72,7 @@ class LitClassifier(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         embeds = self(x)
-        loss = self.supcon_head(embeds, y)
+        loss = self.arcface_head(embeds, y)
         # for logging to the loggers
         self.log('val_loss', loss)
         return {"loss":loss}
@@ -77,12 +80,13 @@ class LitClassifier(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         x, y = batch
         embeds = self(x)
-        loss = self.supcon_head(embeds, y)
+        loss = self.arcface_head(embeds, y)
         self.log('test_loss', loss)
         return {"test_loss":loss}
 
     def configure_optimizers(self):
-        opt = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        opt_embedding = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        opt_arcface = torch.optim.Adam(self.arcface_head.parameters(), lr=self.hparams.lr)
         # sched = MultiStepLR(opt, milestones=self.hparams.steps, gamma=self.hparams.gamma)
         
         
@@ -90,8 +94,9 @@ class LitClassifier(pl.LightningModule):
         # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         #     opt, self.hparams.max_epochs, eta_min=0
         # )
-        lr_scheduler = LinearWarmupCosineAnnealingLR(opt, self.warmup_epochs, self.trainer.max_epochs, warmup_start_lr=0.0, eta_min=0.0, last_epoch=- 1)
-        return [opt], [lr_scheduler]
+        lr_scheduler = LinearWarmupCosineAnnealingLR(opt_embedding, self.warmup_epochs, self.trainer.max_epochs, warmup_start_lr=0.0, eta_min=0.0, last_epoch=- 1)
+        lr_scheduler_arcface = LinearWarmupCosineAnnealingLR(opt_arcface, self.warmup_epochs, self.trainer.max_epochs, warmup_start_lr=0.0, eta_min=0.0, last_epoch=- 1)
+        return [opt_embedding, opt_arcface], [lr_scheduler, lr_scheduler_arcface]
 
         # return {"optimizer": opt, 
         #         "lr_scheduler": 
@@ -124,8 +129,15 @@ class LitClassifier(pl.LightningModule):
 
 def cli_main():
     pl.seed_everything(1000)
-    wandb.init()
-    wandb.run.log_code(".") # all python files uploaded
+    run = wandb.init()
+    # dataset artifact
+
+    my_data = wandb.Artifact("cifar-10", type="training-datasets")
+    my_data.add_dir("./dataset")
+    run.log_artifact(my_data)
+    
+    # Log the code in present dir.
+    wandb.run.log_code(".") # all python files in current dir. are uploaded
     wandb.login()
 
     
@@ -133,7 +145,7 @@ def cli_main():
     lr_callback = LearningRateMonitor(logging_interval="step")
     wandb_logger = WandbLogger(project='CIFAR-10', # group runs in "MNIST" project
                            log_model='all', # log all new checkpoints during training
-                            name="supcon loss")
+                            name="arcface loss")
     # ------------          
     # args
     # ------------
@@ -146,8 +158,11 @@ def cli_main():
     parser = LitClassifier.add_model_specific_args(parser)
     # dataset specific args
     parser = CIFAR_DataModule.add_model_specific_args(parser)
+    parser.add_argument("-r", "--run_name", required=True, help="wandb name for this run")
     args = parser.parse_args()
     
+    # donot set a random name
+    wandb.run.name = args.run_name
     # ------------
     # data
     # ------------
@@ -170,13 +185,14 @@ def cli_main():
     trainer = pl.Trainer.from_argparse_args(args)
     trainer.callbacks.append(checkpoint_callback)
     trainer.callbacks.append(lr_callback)
+    trainer.callbacks.append(QuantizationAwareTraining())
     trainer.logger = wandb_logger
     trainer.tune(model, dm)
 
     # log args to wandb
     args.batch_size = model.hparams.get('batch_size')
     # dm.hparams.batch_size = args.batch_size
-    dm.hparams.batch_size = 512
+    dm.hparams.batch_size = 400
     print(f"\n\n batch size -----> {args.batch_size}\n\n")
     wandb.config.update(vars(args))
 
