@@ -78,6 +78,21 @@ trainer.fit(model, train, val)
 trainer.test(test_dataloaders=test)
 ```
 
+# Distributed Training
+
+:warning: :fire: :anger: :bangbang:
+
+> auto scale batch size is inherently not supported for distributed training by **pytorch lightning**
+----
+
+
+
+For distributed training
+
+```bash
+python cifar_supcon.py --run_name arcface_2_optimizers_autoscale --warmup_epochs 4 --max_epochs 10 --auto_scale_batch_size False --embed_sz 128 --gamma 0.1 --steps 3 4 --gpus 2 --data_dir dataset --img_sz 224 --resize 250 --precision 16 --amp_backend native --num_nodes 1 --strategy ddp --batch_size 128
+```
+
 ### Citation   
 ```
 @article{YourName,

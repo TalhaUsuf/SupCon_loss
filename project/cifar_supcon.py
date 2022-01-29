@@ -204,7 +204,7 @@ def cli_main():
     # ------------
     # trainer.test()
 
-    wandb.close()
+    # wandb.close()
 
 if __name__ == '__main__':
     cli_main()
