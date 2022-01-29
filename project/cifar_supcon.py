@@ -58,30 +58,31 @@ class LitClassifier(pl.LightningModule):
 
     def training_step(self, batch, batch_idx, optimizer_idx):
         x, y = batch
-        # print(x.shape)
+        
         # print(y.shape)
         embeddings = self(x)
         loss = self.arcface_head(embeddings, y)
         # loss = self.supcon_head(embeddings, y)
 
         # for logging to the loggers
-        self.log("train_loss", loss) 
+        self.log("train_loss", loss, sync_dist=True) 
 
         return {"loss":loss}
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
+        # print(x.shape)
         embeds = self(x)
         loss = self.arcface_head(embeds, y)
         # for logging to the loggers
-        self.log('val_loss', loss)
+        self.log('val_loss', loss, sync_dist=True)
         return {"loss":loss}
 
     def test_step(self, batch, batch_idx):
         x, y = batch
         embeds = self(x)
         loss = self.arcface_head(embeds, y)
-        self.log('test_loss', loss)
+        self.log('test_loss', loss, sync_dist=True)
         return {"test_loss":loss}
 
     def configure_optimizers(self):
@@ -185,14 +186,14 @@ def cli_main():
     trainer = pl.Trainer.from_argparse_args(args)
     trainer.callbacks.append(checkpoint_callback)
     trainer.callbacks.append(lr_callback)
-    trainer.callbacks.append(QuantizationAwareTraining())
+    # trainer.callbacks.append(QuantizationAwareTraining())
     trainer.logger = wandb_logger
     trainer.tune(model, dm)
 
     # log args to wandb
     args.batch_size = model.hparams.get('batch_size')
-    # dm.hparams.batch_size = args.batch_size
-    dm.hparams.batch_size = 400
+    dm.hparams.batch_size = args.batch_size
+    # dm.hparams.batch_size = 400
     print(f"\n\n batch size -----> {args.batch_size}\n\n")
     wandb.config.update(vars(args))
 
@@ -203,6 +204,7 @@ def cli_main():
     # ------------
     # trainer.test()
 
+    wandb.close()
 
 if __name__ == '__main__':
     cli_main()
