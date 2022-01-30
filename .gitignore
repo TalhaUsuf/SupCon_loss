@@ -133,3 +133,4 @@ cifar-10-batches-py
 wandb
 project/CIFAR-10
 *.ckpt
+SupCon_loss-project
