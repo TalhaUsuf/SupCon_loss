@@ -19,6 +19,8 @@ from pytorch_lightning.loggers import WandbLogger
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 from pytorch_lightning.callbacks import LearningRateMonitor
 import wandb
+from pytorch_metric_learning import distances, losses, miners, reducers, testers
+from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
 
 # wandb.login()
 
@@ -29,6 +31,10 @@ class LitClassifier(pl.LightningModule):
                         lr : float = 1e-3,  
                         gamma : float = 0.1, **kwargs):
         super().__init__()
+
+        self.accuracy_calculator = AccuracyCalculator(include=("precision_at_1","mean_average_precision"), k=1)
+
+
         self.embed_sz = embed_sz
         self.warmup_epochs = warmup_epochs
         self.lr = lr
@@ -67,12 +73,23 @@ class LitClassifier(pl.LightningModule):
         return {"loss":loss}
 
     def validation_step(self, batch, batch_idx):
-        x, y = batch
-        embeds = self(x)
-        loss = self.supcon_head(embeds, y)
-        # for logging to the loggers
-        self.log('val_loss', loss)
-        return {"loss":loss}
+        # x, y = batch
+        # embeds = self(x)
+        # loss = self.supcon_head(embeds, y)
+        # # for logging to the loggers
+        # self.log('val_loss', loss)
+        # return {"loss":loss}
+
+        train_embeddings, train_labels = self.get_all_embeddings(train_set, model)
+        test_embeddings, test_labels = self.get_all_embeddings(test_set, model)
+        train_labels = train_labels.squeeze(1)
+        test_labels = test_labels.squeeze(1)
+        accuracies = self.accuracy_calculator.get_accuracy(
+            test_embeddings, train_embeddings, test_labels, train_labels, False
+        )
+        self.log("mAP", accuracies["mean_average_precision"], sync_dist=True)
+        self.log("precision@1", accuracies["precision_at_1"], sync_dist=True)
+        
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -109,6 +126,10 @@ class LitClassifier(pl.LightningModule):
                                     
         #                     }
         # }
+
+    def get_all_embeddings(self, dataset, model):
+        tester = testers.BaseTester()
+        return tester.get_all_embeddings(dataset, self)
 
     @staticmethod
     def add_model_specific_args(parent_parser):

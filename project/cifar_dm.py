@@ -1,12 +1,13 @@
  
 import pytorch_lightning as pl
+from sympy import pretty, pretty_print
 from torch.utils.data import random_split, DataLoader
 from argparse import ArgumentParser
 # Note - you must have torchvision installed for this example
-from torchvision.datasets import CIFAR10, CelebA
+from torchvision.datasets import CIFAR10, CelebA, LFWPeople
 from torchvision import transforms
 from typing import Optional
-
+from . import pretty_print
 from PIL import Image
 from pathlib import Path
 
@@ -43,7 +44,8 @@ class CIFAR_DataModule(pl.LightningDataModule):
         CIFAR10(self.data_dir, train=True, download=True)
         # CIFAR10(self.data_dir, train=False, download=True)
         # use only the CelebA dataset valid split for testing
-        CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity')
+        # CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity')
+        LFWPeople(self.data_dir,  download=True, split = 'test')
 
     def setup(self, stage: Optional[str] = None):
 
@@ -59,13 +61,15 @@ class CIFAR_DataModule(pl.LightningDataModule):
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
             # self.mnist_test = CIFAR10(self.data_dir, train=False, transform=self.transform)
-            self.caltech_valid = CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity', transform=self.transform)
+            # self.caltech_valid = CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity', transform=self.transform)
+            self.lfw_test = LFWPeople(self.data_dir,  download=True, split = 'test', transform=self.transform)
             # Optionally...
             # self.dims = tuple(self.mnist_test[0][0].shape)
         
         # Assign dataset to use for validation_step
         if stage == "validate" or stage is None:
-            self.caltech_valid = CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity', transform=self.transform)
+            # self.caltech_valid = CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity', transform=self.transform)
+            self.lfw_test = LFWPeople(self.data_dir,  download=True, split = 'test', transform=self.transform)
     
     
     def train_dataloader(self):
@@ -73,11 +77,11 @@ class CIFAR_DataModule(pl.LightningDataModule):
 
     def val_dataloader(self):
         # return DataLoader(self.mnist_val, batch_size=self.hparams.batch_size, num_workers=4)
-        return DataLoader(self.caltech_valid, batch_size=self.hparams.batch_size, num_workers=4)
+        return DataLoader(self.lfw_test, batch_size=self.hparams.batch_size, num_workers=4)
 
     def test_dataloader(self):
         # return DataLoader(self.mnist_test, batch_size=self.hparams.batch_size)
-        return DataLoader(self.caltech_valid, batch_size=self.hparams.batch_size)
+        return DataLoader(self.lfw_test, batch_size=self.hparams.batch_size)
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -90,19 +94,19 @@ class CIFAR_DataModule(pl.LightningDataModule):
 
 
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
 
-
+#     pretty_print(12)
     # FACE alignment
     # https://intellica-ai.medium.com/a-guide-for-building-your-own-face-detection-recognition-system-910560fe3eb7
 
-    dm = CIFAR_DataModule("dataset", img_sz=224, resize=250, batch_size=8)
-    dm.prepare_data()
-    dm.setup()
-    train_dl = enumerate(dm.train_dataloader())
+    # dm = CIFAR_DataModule("dataset", img_sz=224, resize=250, batch_size=8)
+    # dm.prepare_data()
+    # dm.setup()
+    # train_dl = enumerate(dm.train_dataloader())
 
-    for k,v in train_dl:
-        print(f"\n\n MINIBATCH --> {k} \n\n")
-        x,y = v
-        print(x.shape)
-        print(y.shape)
+    # for k,v in train_dl:
+    #     print(f"\n\n MINIBATCH --> {k} \n\n")
+    #     x,y = v
+    #     print(x.shape)
+    #     print(y.shape)
