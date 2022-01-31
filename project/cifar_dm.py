@@ -3,36 +3,13 @@ import pytorch_lightning as pl
 from torch.utils.data import random_split, DataLoader
 from argparse import ArgumentParser
 # Note - you must have torchvision installed for this example
-from torchvision.datasets import CIFAR10
+from torchvision.datasets import CIFAR10, CelebA
 from torchvision import transforms
 from typing import Optional
 
 from PIL import Image
 from pathlib import Path
-# ========================================================================
-#                             timm imports                                  
-# ========================================================================
-# import urllib
-# from PIL import Image
-# from timm.data import resolve_data_config
-# from timm.data.transforms_factory import create_transform
-# import timm
 
- 
-# model = timm.create_model('mnasnet_100', pretrained=True)
-# model.eval()
-
-
-# config = resolve_data_config({}, model=model)
-# transform = create_transform(**config)
-# print(transform)
- 
-# url, filename = ("https://github.com/pytorch/hub/raw/master/images/dog.jpg", "dog.jpg")
-# urllib.request.urlretrieve(url, filename)
-# img = Image.open(filename).convert('RGB')
-
-# tensor = transform(img).unsqueeze(0) # transform and add batch dimension
-# print(tensor.shape)
 
 
 class CIFAR_DataModule(pl.LightningDataModule):
@@ -64,7 +41,9 @@ class CIFAR_DataModule(pl.LightningDataModule):
     def prepare_data(self):
         # download
         CIFAR10(self.data_dir, train=True, download=True)
-        CIFAR10(self.data_dir, train=False, download=True)
+        # CIFAR10(self.data_dir, train=False, download=True)
+        # use only the CelebA dataset valid split for testing
+        CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity')
 
     def setup(self, stage: Optional[str] = None):
 
@@ -79,19 +58,26 @@ class CIFAR_DataModule(pl.LightningDataModule):
 
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
-            self.mnist_test = CIFAR10(self.data_dir, train=False, transform=self.transform)
-
+            # self.mnist_test = CIFAR10(self.data_dir, train=False, transform=self.transform)
+            self.caltech_valid = CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity', transform=self.transform)
             # Optionally...
             # self.dims = tuple(self.mnist_test[0][0].shape)
-
+        
+        # Assign dataset to use for validation_step
+        if stage == "validate" or stage is None:
+            self.caltech_valid = CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity', transform=self.transform)
+    
+    
     def train_dataloader(self):
         return DataLoader(self.mnist_train, batch_size=self.hparams.batch_size, num_workers=4)
 
     def val_dataloader(self):
-        return DataLoader(self.mnist_val, batch_size=self.hparams.batch_size, num_workers=4)
+        # return DataLoader(self.mnist_val, batch_size=self.hparams.batch_size, num_workers=4)
+        return DataLoader(self.caltech_valid, batch_size=self.hparams.batch_size, num_workers=4)
 
     def test_dataloader(self):
-        return DataLoader(self.mnist_test, batch_size=self.hparams.batch_size)
+        # return DataLoader(self.mnist_test, batch_size=self.hparams.batch_size)
+        return DataLoader(self.caltech_valid, batch_size=self.hparams.batch_size)
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -101,3 +87,22 @@ class CIFAR_DataModule(pl.LightningDataModule):
         parser.add_argument('--img_sz', type=int, default=224, help='size of image')
         parser.add_argument('--resize', type=int, default=250, help='resize the image to this size after which center crop is performed @ --img_sz flag')
         return parser
+
+
+
+if __name__ == '__main__':
+
+
+    # FACE alignment
+    # https://intellica-ai.medium.com/a-guide-for-building-your-own-face-detection-recognition-system-910560fe3eb7
+
+    dm = CIFAR_DataModule("dataset", img_sz=224, resize=250, batch_size=8)
+    dm.prepare_data()
+    dm.setup()
+    train_dl = enumerate(dm.train_dataloader())
+
+    for k,v in train_dl:
+        print(f"\n\n MINIBATCH --> {k} \n\n")
+        x,y = v
+        print(x.shape)
+        print(y.shape)
