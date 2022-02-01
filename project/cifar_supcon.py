@@ -19,6 +19,7 @@ from pytorch_lightning.loggers import WandbLogger
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 from pytorch_lightning.callbacks import LearningRateMonitor
 import wandb
+from pytorch_lightning.callbacks import Callback
 from pytorch_metric_learning import distances, losses, miners, reducers, testers
 from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
 
@@ -26,14 +27,15 @@ from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
 
 class LitClassifier(pl.LightningModule):
     def __init__(self, embed_sz : int , 
-                        steps : List, 
+                        steps : List,
+                        test_ds , 
                         warmup_epochs : int, 
                         lr : float = 1e-3,  
                         gamma : float = 0.1, **kwargs):
         super().__init__()
 
         self.accuracy_calculator = AccuracyCalculator(include=("precision_at_1","mean_average_precision"), k=1)
-
+        self.test_set = test_ds
 
         self.embed_sz = embed_sz
         self.warmup_epochs = warmup_epochs
@@ -73,22 +75,19 @@ class LitClassifier(pl.LightningModule):
         return {"loss":loss}
 
     def validation_step(self, batch, batch_idx):
-        # x, y = batch
-        # embeds = self(x)
-        # loss = self.supcon_head(embeds, y)
-        # # for logging to the loggers
-        # self.log('val_loss', loss)
-        # return {"loss":loss}
+        
 
-        train_embeddings, train_labels = self.get_all_embeddings(train_set, model)
-        test_embeddings, test_labels = self.get_all_embeddings(test_set, model)
-        train_labels = train_labels.squeeze(1)
+        # train_embeddings, train_labels = self.get_all_embeddings(train_set, model)
+        test_embeddings, test_labels = self.get_all_embeddings(self.test_set, self)
+        # train_labels = train_labels.squeeze(1)
         test_labels = test_labels.squeeze(1)
         accuracies = self.accuracy_calculator.get_accuracy(
-            test_embeddings, train_embeddings, test_labels, train_labels, False
-        )
+            test_embeddings, test_labels, embeddings_come_from_same_source=True)
         self.log("mAP", accuracies["mean_average_precision"], sync_dist=True)
         self.log("precision@1", accuracies["precision_at_1"], sync_dist=True)
+        
+        return accuracies["precision_at_1"]
+        
         
 
     def test_step(self, batch, batch_idx):
@@ -129,7 +128,7 @@ class LitClassifier(pl.LightningModule):
 
     def get_all_embeddings(self, dataset, model):
         tester = testers.BaseTester()
-        return tester.get_all_embeddings(dataset, self)
+        return tester.get_all_embeddings(dataset, model)
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -143,18 +142,76 @@ class LitClassifier(pl.LightningModule):
         return parser
 
 
+class Log_Val(Callback):
+    '''
+    for help see : 
+    
+    [1] https://pytorch-lightning.readthedocs.io/en/stable/api/pytorch_lightning.callbacks.base.html#pytorch_lightning.callbacks.base.Callback
+    [2] https://pytorch-lightning.readthedocs.io/en/stable/common/lightning_module.html#on-validation-batch-end
+    
+    It is a custom callback which is automatically called at the end of validation batch.
+    
+    on_validation_batch_end(trainer, pl_module, outputs, batch, batch_idx, dataloader_idx)
+    called when validation batch ends.
+    
+    -------------------------------------------------------------    
+    outputs (Union[Tensor, Dict[str, Any], None]) – The outputs of validation_step_end(validation_step(x))
+
+    batch (Any) – The batched data as it is returned by the validation DataLoader.
+
+    batch_idx (int) – the index of the batch
+
+    dataloader_idx (int) – the index of the dataloader
+    
+    '''
+    
+    def __init__(self,current_logger):
+        self.logger_ = current_logger
+            
+    def on_validation_batch_end(
+        self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+        """Called when the validation batch ends."""
+
+        # `outputs` comes from `LightningModule.validation_step`
+        # which corresponds to our model predictions in this case
+        
+        # Let's log 20 sample image predictions from first batch
+        if batch_idx == 0:
+            n = 20
+            x, y = batch
+            images = [img for img in x[:n]]
+            captions = [f'Ground Truth: {y_i}' for  y_i in y[:n]]
+            # Option 1: log images with `WandbLogger.log_image`
+            self.logger_.log_image(key='Validation Images', images=images, caption=captions)
+            # Option 2: log predictions as a Table
+            columns = ['image', 'ground truth', 'precision']
+            data = [[wandb.Image(img), gt, prec] for img, gt, prec in zip(x[:n], y[:n], outputs[:n])] 
+            self.logger_.log_table(key='Validation Result', columns=columns, data=data)
+
+
+
 def cli_main():
+    
+    
+    # ==========================================================================
+    #                      custom callback to log images to wandb                                  
+    # ==========================================================================
+    
     pl.seed_everything(1000)
-    wandb.init()
-    wandb.run.log_code(".") # all python files uploaded
+    # wandb.init()
+    
     wandb.login()
+    wandb.run.log_code("./*.py") # all python files uploaded
 
     
     checkpoint_callback = ModelCheckpoint(filename="checkpoints/cifar10-{epoch:02d}-{val_loss:.6f}", monitor='val_loss', mode='min', )
     lr_callback = LearningRateMonitor(logging_interval="step")
-    wandb_logger = WandbLogger(project='CIFAR-10', # group runs in "MNIST" project
-                           log_model='all', # log all new checkpoints during training
-                            name="supcon loss")
+    wandb_logger = WandbLogger(
+                                project='CIFAR-10', # group runs in "MNIST" project
+                                log_model='all', # log all new checkpoints during training
+                                name="supcon loss"
+                                    
+                                )
     # ------------          
     # args
     # ------------
@@ -180,10 +237,11 @@ def cli_main():
     # val_loader = DataLoader(mnist_val, batch_size=args.batch_size)
     # test_loader = DataLoader(mnist_test, batch_size=args.batch_size)
     dm = CIFAR_DataModule(**vars(args)) # vars converts Namespace --> dict, ** converts to kwargs
+    val_set = dm.lfw_test
     # ------------
     # model
     # ------------
-    model = LitClassifier(**vars(args))
+    model = LitClassifier(**vars(args), test_ds=val_set)
     wandb_logger.watch(model)
     # ------------
     # training
@@ -191,6 +249,7 @@ def cli_main():
     trainer = pl.Trainer.from_argparse_args(args)
     trainer.callbacks.append(checkpoint_callback)
     trainer.callbacks.append(lr_callback)
+    trainer.callbacks.append(Log_Val(wandb_logger))
     trainer.logger = wandb_logger
     trainer.tune(model, dm)
 
@@ -203,6 +262,9 @@ def cli_main():
 
     trainer.fit(model, dm)
 
+    # for resuming the training
+    trainer.save_checkpoint('resume_ckpt.pth')
+    wandb.save('resume_ckpt.pth')
     # ------------
     # testing
     # ------------

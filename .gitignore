@@ -132,3 +132,5 @@ dataset/*
 cifar-10-batches-py
 wandb
 project/CIFAR-10
+*.zip
+*.ckpt

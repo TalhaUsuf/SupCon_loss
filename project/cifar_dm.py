@@ -4,10 +4,10 @@ from sympy import pretty, pretty_print
 from torch.utils.data import random_split, DataLoader
 from argparse import ArgumentParser
 # Note - you must have torchvision installed for this example
-from torchvision.datasets import CIFAR10, CelebA, LFWPeople
+from torchvision.datasets import CIFAR10, FashionMNIST
 from torchvision import transforms
 from typing import Optional
-from . import pretty_print
+# from . import pretty_print
 from PIL import Image
 from pathlib import Path
 
@@ -45,7 +45,7 @@ class CIFAR_DataModule(pl.LightningDataModule):
         # CIFAR10(self.data_dir, train=False, download=True)
         # use only the CelebA dataset valid split for testing
         # CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity')
-        LFWPeople(self.data_dir,  download=True, split = 'test')
+        FashionMNIST(root = self.data_dir, train = False,  download=True)
 
     def setup(self, stage: Optional[str] = None):
 
@@ -62,14 +62,14 @@ class CIFAR_DataModule(pl.LightningDataModule):
         if stage == "test" or stage is None:
             # self.mnist_test = CIFAR10(self.data_dir, train=False, transform=self.transform)
             # self.caltech_valid = CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity', transform=self.transform)
-            self.lfw_test = LFWPeople(self.data_dir,  download=True, split = 'test', transform=self.transform)
+            self.lfw_test = FashionMNIST(root = self.data_dir, train = False,  download=True, transform=self.transform)
             # Optionally...
             # self.dims = tuple(self.mnist_test[0][0].shape)
         
         # Assign dataset to use for validation_step
         if stage == "validate" or stage is None:
             # self.caltech_valid = CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity', transform=self.transform)
-            self.lfw_test = LFWPeople(self.data_dir,  download=True, split = 'test', transform=self.transform)
+            self.lfw_test = FashionMNIST(root = self.data_dir, train = False,  download=True, transform=self.transform)
     
     
     def train_dataloader(self):
