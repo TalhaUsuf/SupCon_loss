@@ -11,6 +11,7 @@ import numpy as np
 tqdm.pandas()
 import torch
 from torchvision import transforms
+from sklearn.preprocessing import LabelEncoder
 
 class ShopeeDataset(Dataset):
     def __init__(self, csv, transforms=None):
@@ -24,9 +25,11 @@ class ShopeeDataset(Dataset):
         transforms : transforms.Compose, optional
             must be defined using transforms.Compose  NOT using albumentations
         '''        
-
+        self.le = LabelEncoder()
+        csv['label_group'] = self.le.fit_transform(csv['label_group'])
         self.csv = csv.reset_index()
         self.augmentations = transforms
+        
         
 
     def __len__(self):
@@ -68,10 +71,12 @@ class ShopeeDataset(Dataset):
 # ...     y_train, y_test = y[train_index], y[test_index]
 
 
-    
+# data = pd.read_csv('dataset/folds.csv')
+# data['filepath'] = data['image'].progress_apply(lambda x: os.path.join('dataset','train_images', x))
+# valid = data[data['fold']==0].reset_index(drop=True)
+# shopee = ShopeeDataset(
+#         csv=valid,
+#         transforms=None,
+#     )    
 
-
-
-# for k,v in valid_dataset:
-#     print(k.shape,v.shape)
-#     break
+# print(len(shopee))

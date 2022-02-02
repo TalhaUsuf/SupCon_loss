@@ -45,7 +45,14 @@ class CIFAR_DataModule(pl.LightningDataModule):
         data = pd.read_csv('dataset/folds.csv')
         data['filepath'] = data['image'].progress_apply(lambda x: os.path.join('dataset','train_images', x))
         self.valid = data[data['fold']==0].reset_index(drop=True)
-        self.shopee = ShopeeDataset(
+        self.train = data[data['fold']==1].reset_index(drop=True)
+        # make training dataset here becasue this is needed in the pl_lightning module validation loop
+        self.train_shopee = ShopeeDataset(
+                csv=self.train,
+                transforms=self.transform,
+            )
+        # make training dataset here becasue this is needed in the pl_lightning module validation loop
+        self.test_shopee = ShopeeDataset(
                 csv=self.valid,
                 transforms=self.transform,
             )
@@ -53,14 +60,14 @@ class CIFAR_DataModule(pl.LightningDataModule):
         
     def prepare_data(self):
         # download
-        CIFAR10(self.data_dir, train=True, download=True)
+        # CIFAR10(self.data_dir, train=True, download=True)
         # CIFAR10(self.data_dir, train=False, download=True)
         # use only the CelebA dataset valid split for testing
         # CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity')
         # ==========================================================================
         #                             shopee dataset is below                                  
         # ==========================================================================
-
+        pass
         
 
     def setup(self, stage: Optional[str] = None):
@@ -77,44 +84,47 @@ class CIFAR_DataModule(pl.LightningDataModule):
 
         # Assign train/val datasets for use in dataloaders
         if stage == "fit" or stage is None:
-            mnist_full = CIFAR10(self.data_dir, train=True, transform=self.transform)
-            print(f"\n\n dataset size --> {len(mnist_full)} \n\n")
-            self.mnist_train, self.mnist_val = random_split(mnist_full, [45000, 5000])
+            # mnist_full = CIFAR10(self.data_dir, train=True, transform=self.transform)
+            # shopee_full = self.shopee
+            print(f"\n\n dataset size --> {len(self.train_shopee)} \n\n")
+            # self.mnist_train, self.mnist_val = random_split(mnist_full, [45000, 5000])
 
             # Optionally...
-            self.dims = tuple(self.mnist_train[0][0].shape) # X, Y ===> X.shape
+            # self.dims = tuple(self.mnist_train[0][0].shape) # X, Y ===> X.shape
 
         # Assign test dataset for use in test step
         if stage == "test" or stage is None:
             # self.mnist_test = CIFAR10(self.data_dir, train=False, transform=self.transform)
             # self.caltech_valid = CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity', transform=self.transform)
 
-            self.shopee = ShopeeDataset(
-                csv=self.valid,
-                transforms=self.transform,
-            )
+            # self.shopee = ShopeeDataset(
+            #     csv=self.valid,
+            #     transforms=self.transform,
+            # )
+            print(f"\n\n dataset size --> {len(self.test_shopee)} \n\n")
         
    
         
         # Assign dataset to use for validation_step
         if stage == "validate" or stage is None:
             
-            self.shopee = ShopeeDataset(
-                csv=self.valid,
-                transforms=self.transform,
-            )
+            # self.shopee = ShopeeDataset(
+            #     csv=self.valid,
+            #     transforms=self.transform,
+            # )
+            print(f"\n\n dataset size --> {len(self.test_shopee)} \n\n")
     
     
     def train_dataloader(self):
-        return DataLoader(self.mnist_train, batch_size=self.hparams.batch_size, num_workers=4)
+        return DataLoader(self.train_shopee, batch_size=self.hparams.batch_size, num_workers=4)
 
     def val_dataloader(self):
         # return DataLoader(self.mnist_val, batch_size=self.hparams.batch_size, num_workers=4)
-        return DataLoader(self.shopee, batch_size=self.hparams.batch_size, num_workers=4)
+        return DataLoader(self.test_shopee, batch_size=self.hparams.batch_size, num_workers=4)
 
     def test_dataloader(self):
         # return DataLoader(self.mnist_test, batch_size=self.hparams.batch_size)
-        return DataLoader(self.shopee, batch_size=self.hparams.batch_size)
+        return DataLoader(self.test_shopee, batch_size=self.hparams.batch_size)
 
     @staticmethod
     def add_model_specific_args(parent_parser):

@@ -22,20 +22,24 @@ import wandb
 from pytorch_lightning.callbacks import Callback
 from pytorch_metric_learning import distances, losses, miners, reducers, testers
 from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
+from itertools import repeat
+
 
 # wandb.login()
 
 class LitClassifier(pl.LightningModule):
     def __init__(self, embed_sz : int , 
                         steps : List,
+                        train_ds,
                         test_ds,
                         warmup_epochs : int, 
                         lr : float = 1e-3,  
                         gamma : float = 0.1, **kwargs):
         super().__init__()
 
-        self.accuracy_calculator = AccuracyCalculator(include=("precision_at_1","mean_average_precision"), k=1)
+        self.accuracy_calculator = AccuracyCalculator(include=("precision_at_1","mean_average_precision"), avg_of_avgs=True, k='max_bin_count', device="cuda")
         self.test_set = test_ds
+        self.train_set = train_ds
 
         self.embed_sz = embed_sz
         self.warmup_epochs = warmup_epochs
@@ -70,35 +74,47 @@ class LitClassifier(pl.LightningModule):
         embeddings = self(x)
         loss = self.supcon_head(embeddings, y)
         # for logging to the loggers
-        self.log("train_loss", loss) 
+        self.log("train_loss", loss, sync_dist=True) 
 
         return {"loss":loss}
 
     def validation_step(self, batch, batch_idx):
         
 
-        # train_embeddings, train_labels = self.get_all_embeddings(train_set, model)
+        train_embeddings, train_labels = self.get_all_embeddings(self.train_set, self)
         test_embeddings, test_labels = self.get_all_embeddings(self.test_set, self)
-        # train_labels = train_labels.squeeze(1)
+        train_labels = train_labels.squeeze(1)
         test_labels = test_labels.squeeze(1)
         accuracies = self.accuracy_calculator.get_accuracy(
-            test_embeddings, test_labels, embeddings_come_from_same_source=True)
+                                                            query = test_embeddings,
+                                                            reference = train_embeddings,
+                                                            query_labels = test_labels,
+                                                            reference_labels = train_labels,
+                                                            embeddings_come_from_same_source=False
+                                                        )
+        
         self.log("mAP", accuracies["mean_average_precision"], sync_dist=True)
-        self.log("precision@1", accuracies["precision_at_1"], sync_dist=True)
+        self.log("precision_at_1", accuracies["precision_at_1"], sync_dist=True)
         
         return accuracies["precision_at_1"]
         
         
 
     def test_step(self, batch, batch_idx):
-        train_embeddings, train_labels = self.get_all_embeddings(train_set, model)
+        # train_embeddings, train_labels = self.get_all_embeddings(train_set, model)
         test_embeddings, test_labels = self.get_all_embeddings(self.test_set, self)
-        train_labels = train_labels.squeeze(1)
+        # train_labels = train_labels.squeeze(1)
         test_labels = test_labels.squeeze(1)
         accuracies = self.accuracy_calculator.get_accuracy(
-            test_embeddings,train_embeddings, test_labels, train_labels, embeddings_come_from_same_source=True)
+                                                            query = test_embeddings,
+                                                            reference = test_embeddings,
+                                                            query_labels = test_labels,
+                                                            reference_labels = test_labels,
+                                                            embeddings_come_from_same_source=False
+                                                        )
+        
         self.log("mAP", accuracies["mean_average_precision"], sync_dist=True)
-        self.log("precision@1", accuracies["precision_at_1"], sync_dist=True)
+        self.log("precision_at_1", accuracies["precision_at_1"], sync_dist=True)
         
         return accuracies["precision_at_1"]
 
@@ -132,7 +148,7 @@ class LitClassifier(pl.LightningModule):
         # }
 
     def get_all_embeddings(self, dataset, model):
-        tester = testers.BaseTester()
+        tester = testers.BaseTester(batch_size = 64, dataloader_num_workers = 8, data_device = "cuda")
         return tester.get_all_embeddings(dataset, model)
 
     @staticmethod
@@ -175,23 +191,28 @@ class Log_Val(Callback):
             
     def on_validation_batch_end(
         self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+        
+        
+        # print(batch[0].shape, batch[1].shape)
         """Called when the validation batch ends."""
 
         # `outputs` comes from `LightningModule.validation_step`
         # which corresponds to our model predictions in this case
         
         # Let's log 20 sample image predictions from first batch
-        if batch_idx == 0:
-            n = 20
-            x, y = batch
-            images = [img for img in x[:n]]
-            captions = [f'Ground Truth: {y_i}' for  y_i in y[:n]]
-            # Option 1: log images with `WandbLogger.log_image`
-            self.logger_.log_image(key='Validation Images', images=images, caption=captions)
-            # Option 2: log predictions as a Table
-            columns = ['image', 'ground truth', 'precision']
-            data = [[wandb.Image(img), gt, prec] for img, gt, prec in zip(x[:n], y[:n], outputs[:n])] 
-            self.logger_.log_table(key='Validation Result', columns=columns, data=data)
+        
+        # NOTE: in this case, outputs is a float
+        # if batch_idx == 0:
+        n = 20
+        x, y = batch
+        images = [img for img in x[:n]]
+        captions = [f'Ground Truth: {y_i} @ {pr}' for  y_i, pr in zip(y[:n], outputs )]
+        # Option 1: log images with `WandbLogger.log_image`
+        self.logger_.log_image(key='Validation Images', images=images, caption=captions)
+        # Option 2: log predictions as a Table
+        columns = ['image', 'ground truth', 'precision_at_1']
+        data = [[wandb.Image(img), gt, p] for img, gt, p in zip(x[:n], y[:n], repeat(outputs))] 
+        self.logger_.log_table(key='Validation Result', columns=columns, data=data)
 
 
 
@@ -205,18 +226,21 @@ def cli_main():
     pl.seed_everything(1000)
     wandb.init()
     
-    # wandb.login()
+    wandb.login()
     wandb.run.log_code("./*.py") # all python files uploaded
 
+    # artifact = wandb.Artifact("CIFAR10-Shopee", type='dataset')
+    # artifact.add_dir("./dataset")
     
-    checkpoint_callback = ModelCheckpoint(filename="checkpoints/cifar10-{epoch:02d}-{val_loss:.6f}", monitor='val_loss', mode='min', )
+    checkpoint_callback = ModelCheckpoint(filename="checkpoints/cifar10-{epoch:02d}-{precision_at_1:.6f}", monitor='precision_at_1', mode='max', )
     lr_callback = LearningRateMonitor(logging_interval="step")
     wandb_logger = WandbLogger(
                                 project='CIFAR-10', # group runs in "MNIST" project
                                 log_model='all', # log all new checkpoints during training
-                                name="supcon loss"
+                                name="arcface loss"
                                     
                                 )
+    # wandb_logger.log_artifact(artifact)
     # ------------          
     # args
     # ------------
@@ -243,11 +267,13 @@ def cli_main():
     # test_loader = DataLoader(mnist_test, batch_size=args.batch_size)
     dm = CIFAR_DataModule(**vars(args)) # vars converts Namespace --> dict, ** converts to kwargs
     
-    val_set = dm.shopee
+    # FOLLOWING BOTH ARE DEFINED IN THE INITIALIZER OF DATAMODULE
+    train_set = dm.train_shopee
+    val_set = dm.test_shopee
     # ------------
     # model
     # ------------
-    model = LitClassifier(**vars(args), test_ds=val_set)
+    model = LitClassifier(**vars(args), train_ds = train_set, test_ds = val_set)
     wandb_logger.watch(model, log = "all", log_graph = True)
     # ------------
     # training
