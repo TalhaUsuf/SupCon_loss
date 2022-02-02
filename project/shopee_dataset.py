@@ -25,9 +25,10 @@ class ShopeeDataset(Dataset):
         transforms : transforms.Compose, optional
             must be defined using transforms.Compose  NOT using albumentations
         '''        
-        self.le = LabelEncoder()
-        csv['label_group'] = self.le.fit_transform(csv['label_group'])
-        self.csv = csv.reset_index()
+        # self.le = LabelEncoder()
+        # csv['label_group'] = self.le.fit_transform(csv['label_group'])
+        # self.csv = csv.reset_index()
+        self.csv = csv
         self.augmentations = transforms
         
         

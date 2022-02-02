@@ -136,3 +136,4 @@ project/CIFAR-10
 *.ckpt
 *.jpg
 *.csv
+*.pth

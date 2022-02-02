@@ -13,7 +13,7 @@ import pandas as pd
 import os
 from PIL import Image
 from pathlib import Path
-
+from sklearn.preprocessing import LabelEncoder
 
 
 class CIFAR_DataModule(pl.LightningDataModule):
@@ -44,18 +44,40 @@ class CIFAR_DataModule(pl.LightningDataModule):
 
         data = pd.read_csv('dataset/folds.csv')
         data['filepath'] = data['image'].progress_apply(lambda x: os.path.join('dataset','train_images', x))
-        self.valid = data[data['fold']==0].reset_index(drop=True)
-        self.train = data[data['fold']==1].reset_index(drop=True)
+        
+        self.full_ds = data[data['fold']==0].reset_index(drop=True)
+        # self.valid = data[data['fold']==0].reset_index(drop=True)
+        # self.train = data[data['fold']==1].reset_index(drop=True)
         # make training dataset here becasue this is needed in the pl_lightning module validation loop
-        self.train_shopee = ShopeeDataset(
-                csv=self.train,
+        
+        # label encoder should be common among both
+        self.le = LabelEncoder()
+        self.full_ds['label_group'] = self.le.fit_transform(self.full_ds['label_group'])
+        # self.train['label_group'] = self.le.fit_transform(self.train['label_group'])
+        # self.valid['label_group'] = self.le.transform(self.valid['label_group'])
+        
+        self.full_ds = self.full_ds.reset_index()
+        # self.train = self.train.reset_index()
+        # self.valid = self.valid.reset_index()
+        
+        self.full_shopee = ShopeeDataset(
+                csv=self.full_ds,
                 transforms=self.transform,
             )
+        print("==================================")
+        print(len(self.full_shopee))
+        print("==================================")
+        # del self.full_ds
+        self.train_shopee, self.test_shopee = random_split(self.full_shopee, [int(0.8*len(self.full_shopee)), int(0.2*len(self.full_shopee))])
+        # self.train_shopee = ShopeeDataset(
+        #         csv=self.train,
+        #         transforms=self.transform,
+        #     )
         # make training dataset here becasue this is needed in the pl_lightning module validation loop
-        self.test_shopee = ShopeeDataset(
-                csv=self.valid,
-                transforms=self.transform,
-            )
+        # self.test_shopee = ShopeeDataset(
+        #         csv=self.valid,
+        #         transforms=self.transform,
+        #     )
         
         
     def prepare_data(self):
@@ -87,6 +109,7 @@ class CIFAR_DataModule(pl.LightningDataModule):
             # mnist_full = CIFAR10(self.data_dir, train=True, transform=self.transform)
             # shopee_full = self.shopee
             print(f"\n\n dataset size --> {len(self.train_shopee)} \n\n")
+            # self.train_shopee, self.test_shopee = random_split(len(self.full_ds), [int(0.8*len(self.full_ds)), int(0.2*len(self.full_ds))])
             # self.mnist_train, self.mnist_val = random_split(mnist_full, [45000, 5000])
 
             # Optionally...

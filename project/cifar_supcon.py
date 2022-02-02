@@ -37,7 +37,7 @@ class LitClassifier(pl.LightningModule):
                         gamma : float = 0.1, **kwargs):
         super().__init__()
 
-        self.accuracy_calculator = AccuracyCalculator(include=("precision_at_1","mean_average_precision"), avg_of_avgs=True, k='max_bin_count', device="cuda")
+        self.accuracy_calculator = AccuracyCalculator(include=("precision_at_1","mean_average_precision"), avg_of_avgs=True, k='max_bin_count', device=self.device)
         self.test_set = test_ds
         self.train_set = train_ds
 
@@ -78,8 +78,14 @@ class LitClassifier(pl.LightningModule):
 
         return {"loss":loss}
 
-    def validation_step(self, batch, batch_idx):
+    # def validation_step(self, batch, batch_idx):
+    def on_train_epoch_end(self):
+        '''
+        called in the very end of training epoch.
+        SEE DOCS HERE:https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html#hooks
+
         
+        '''        
 
         train_embeddings, train_labels = self.get_all_embeddings(self.train_set, self)
         test_embeddings, test_labels = self.get_all_embeddings(self.test_set, self)
@@ -100,23 +106,23 @@ class LitClassifier(pl.LightningModule):
         
         
 
-    def test_step(self, batch, batch_idx):
-        # train_embeddings, train_labels = self.get_all_embeddings(train_set, model)
-        test_embeddings, test_labels = self.get_all_embeddings(self.test_set, self)
-        # train_labels = train_labels.squeeze(1)
-        test_labels = test_labels.squeeze(1)
-        accuracies = self.accuracy_calculator.get_accuracy(
-                                                            query = test_embeddings,
-                                                            reference = test_embeddings,
-                                                            query_labels = test_labels,
-                                                            reference_labels = test_labels,
-                                                            embeddings_come_from_same_source=False
-                                                        )
+    # def test_step(self, batch, batch_idx):
+    #     train_embeddings, train_labels = self.get_all_embeddings(self.train_set, self)
+    #     test_embeddings, test_labels = self.get_all_embeddings(self.test_set, self)
+    #     train_labels = train_labels.squeeze(1)
+    #     test_labels = test_labels.squeeze(1)
+    #     accuracies = self.accuracy_calculator.get_accuracy(
+    #                                                         query = test_embeddings,
+    #                                                         reference = train_embeddings,
+    #                                                         query_labels = test_labels,
+    #                                                         reference_labels = train_labels,
+    #                                                         embeddings_come_from_same_source=False
+    #                                                     )
         
-        self.log("mAP", accuracies["mean_average_precision"], sync_dist=True)
-        self.log("precision_at_1", accuracies["precision_at_1"], sync_dist=True)
+    #     self.log("mAP", accuracies["mean_average_precision"], sync_dist=True)
+    #     self.log("precision_at_1", accuracies["precision_at_1"], sync_dist=True)
         
-        return accuracies["precision_at_1"]
+    #     return accuracies["precision_at_1"]
 
     def configure_optimizers(self):
         opt = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
@@ -148,7 +154,7 @@ class LitClassifier(pl.LightningModule):
         # }
 
     def get_all_embeddings(self, dataset, model):
-        tester = testers.BaseTester(batch_size = 64, dataloader_num_workers = 8, data_device = "cuda")
+        tester = testers.BaseTester(batch_size = 64, dataloader_num_workers = 8, data_device=self.device)
         return tester.get_all_embeddings(dataset, model)
 
     @staticmethod
@@ -206,7 +212,7 @@ class Log_Val(Callback):
         n = 20
         x, y = batch
         images = [img for img in x[:n]]
-        captions = [f'Ground Truth: {y_i} @ {pr}' for  y_i, pr in zip(y[:n], outputs )]
+        captions = [f'Ground Truth: {y_i} @ {pr}' for  y_i, pr in zip(y[:n], repeat(outputs) )]
         # Option 1: log images with `WandbLogger.log_image`
         self.logger_.log_image(key='Validation Images', images=images, caption=captions)
         # Option 2: log predictions as a Table
