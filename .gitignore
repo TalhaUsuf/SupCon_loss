@@ -134,3 +134,5 @@ wandb
 project/CIFAR-10
 *.zip
 *.ckpt
+*.jpg
+*.csv

@@ -5,9 +5,12 @@ from torch.utils.data import random_split, DataLoader
 from argparse import ArgumentParser
 # Note - you must have torchvision installed for this example
 from torchvision.datasets import CIFAR10, FashionMNIST
+from shopee_dataset import ShopeeDataset
 from torchvision import transforms
 from typing import Optional
 # from . import pretty_print
+import pandas as pd
+import os
 from PIL import Image
 from pathlib import Path
 
@@ -39,15 +42,38 @@ class CIFAR_DataModule(pl.LightningDataModule):
         print(self.hparams)
         print("==================================")
 
+        data = pd.read_csv('dataset/folds.csv')
+        data['filepath'] = data['image'].progress_apply(lambda x: os.path.join('dataset','train_images', x))
+        self.valid = data[data['fold']==0].reset_index(drop=True)
+        self.shopee = ShopeeDataset(
+                csv=self.valid,
+                transforms=self.transform,
+            )
+        
+        
     def prepare_data(self):
         # download
         CIFAR10(self.data_dir, train=True, download=True)
         # CIFAR10(self.data_dir, train=False, download=True)
         # use only the CelebA dataset valid split for testing
         # CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity')
-        FashionMNIST(root = self.data_dir, train = False,  download=True)
+        # ==========================================================================
+        #                             shopee dataset is below                                  
+        # ==========================================================================
+
+        
 
     def setup(self, stage: Optional[str] = None):
+        '''
+        called on every gpu separatey. Assign states like self.* here.
+
+        Parameters
+        ----------
+        stage : Optional[str], optional
+            fit --> MNIST train split used 
+            test --> Shopee train split dataset used
+            validate --> Shopee train split dataset used
+        '''        
 
         # Assign train/val datasets for use in dataloaders
         if stage == "fit" or stage is None:
@@ -58,18 +84,25 @@ class CIFAR_DataModule(pl.LightningDataModule):
             # Optionally...
             self.dims = tuple(self.mnist_train[0][0].shape) # X, Y ===> X.shape
 
-        # Assign test dataset for use in dataloader(s)
+        # Assign test dataset for use in test step
         if stage == "test" or stage is None:
             # self.mnist_test = CIFAR10(self.data_dir, train=False, transform=self.transform)
             # self.caltech_valid = CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity', transform=self.transform)
-            self.lfw_test = FashionMNIST(root = self.data_dir, train = False,  download=True, transform=self.transform)
-            # Optionally...
-            # self.dims = tuple(self.mnist_test[0][0].shape)
+
+            self.shopee = ShopeeDataset(
+                csv=self.valid,
+                transforms=self.transform,
+            )
+        
+   
         
         # Assign dataset to use for validation_step
         if stage == "validate" or stage is None:
-            # self.caltech_valid = CelebA(self.data_dir,  download=True, split = 'test', target_type = 'identity', transform=self.transform)
-            self.lfw_test = FashionMNIST(root = self.data_dir, train = False,  download=True, transform=self.transform)
+            
+            self.shopee = ShopeeDataset(
+                csv=self.valid,
+                transforms=self.transform,
+            )
     
     
     def train_dataloader(self):
@@ -77,11 +110,11 @@ class CIFAR_DataModule(pl.LightningDataModule):
 
     def val_dataloader(self):
         # return DataLoader(self.mnist_val, batch_size=self.hparams.batch_size, num_workers=4)
-        return DataLoader(self.lfw_test, batch_size=self.hparams.batch_size, num_workers=4)
+        return DataLoader(self.shopee, batch_size=self.hparams.batch_size, num_workers=4)
 
     def test_dataloader(self):
         # return DataLoader(self.mnist_test, batch_size=self.hparams.batch_size)
-        return DataLoader(self.lfw_test, batch_size=self.hparams.batch_size)
+        return DataLoader(self.shopee, batch_size=self.hparams.batch_size)
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -96,17 +129,25 @@ class CIFAR_DataModule(pl.LightningDataModule):
 
 # if __name__ == '__main__':
 
-#     pretty_print(12)
-    # FACE alignment
-    # https://intellica-ai.medium.com/a-guide-for-building-your-own-face-detection-recognition-system-910560fe3eb7
+# #     pretty_print(12)
+#     # FACE alignment
+#     # https://intellica-ai.medium.com/a-guide-for-building-your-own-face-detection-recognition-system-910560fe3eb7
 
-    # dm = CIFAR_DataModule("dataset", img_sz=224, resize=250, batch_size=8)
-    # dm.prepare_data()
-    # dm.setup()
-    # train_dl = enumerate(dm.train_dataloader())
-
-    # for k,v in train_dl:
-    #     print(f"\n\n MINIBATCH --> {k} \n\n")
-    #     x,y = v
-    #     print(x.shape)
-    #     print(y.shape)
+#     dm = CIFAR_DataModule("dataset", img_sz=224, resize=250, batch_size=8)
+#     dm.prepare_data()
+#     dm.setup()
+#     val_dl = enumerate(dm.test_dataloader())
+#     trrain_dl = enumerate(dm.train_dataloader())
+    
+#     for k,v in val_dl:
+#         print(f"\n\n val MINIBATCH --> {k} \n\n")
+#         x,y = v
+#         print(x.shape)
+#         print(y.shape)
+#         break
+#     for k,v in trrain_dl:
+#         print(f"\n\n train MINIBATCH --> {k} \n\n")
+#         x,y = v
+#         print(x.shape)
+#         print(y.shape)
+#         break

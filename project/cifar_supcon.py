@@ -28,7 +28,7 @@ from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
 class LitClassifier(pl.LightningModule):
     def __init__(self, embed_sz : int , 
                         steps : List,
-                        test_ds , 
+                        test_ds,
                         warmup_epochs : int, 
                         lr : float = 1e-3,  
                         gamma : float = 0.1, **kwargs):
@@ -91,11 +91,16 @@ class LitClassifier(pl.LightningModule):
         
 
     def test_step(self, batch, batch_idx):
-        x, y = batch
-        embeds = self(x)
-        loss = self.supcon_head(embeds, y)
-        self.log('test_loss', loss)
-        return {"test_loss":loss}
+        train_embeddings, train_labels = self.get_all_embeddings(train_set, model)
+        test_embeddings, test_labels = self.get_all_embeddings(self.test_set, self)
+        train_labels = train_labels.squeeze(1)
+        test_labels = test_labels.squeeze(1)
+        accuracies = self.accuracy_calculator.get_accuracy(
+            test_embeddings,train_embeddings, test_labels, train_labels, embeddings_come_from_same_source=True)
+        self.log("mAP", accuracies["mean_average_precision"], sync_dist=True)
+        self.log("precision@1", accuracies["precision_at_1"], sync_dist=True)
+        
+        return accuracies["precision_at_1"]
 
     def configure_optimizers(self):
         opt = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
@@ -198,9 +203,9 @@ def cli_main():
     # ==========================================================================
     
     pl.seed_everything(1000)
-    # wandb.init()
+    wandb.init()
     
-    wandb.login()
+    # wandb.login()
     wandb.run.log_code("./*.py") # all python files uploaded
 
     
@@ -237,12 +242,13 @@ def cli_main():
     # val_loader = DataLoader(mnist_val, batch_size=args.batch_size)
     # test_loader = DataLoader(mnist_test, batch_size=args.batch_size)
     dm = CIFAR_DataModule(**vars(args)) # vars converts Namespace --> dict, ** converts to kwargs
-    val_set = dm.lfw_test
+    
+    val_set = dm.shopee
     # ------------
     # model
     # ------------
     model = LitClassifier(**vars(args), test_ds=val_set)
-    wandb_logger.watch(model)
+    wandb_logger.watch(model, log = "all", log_graph = True)
     # ------------
     # training
     # ------------
@@ -256,7 +262,7 @@ def cli_main():
     # log args to wandb
     args.batch_size = model.hparams.get('batch_size')
     # dm.hparams.batch_size = args.batch_size
-    dm.hparams.batch_size = 512
+    # dm.hparams.batch_size = 512
     print(f"\n\n batch size -----> {args.batch_size}\n\n")
     wandb.config.update(vars(args))
 
