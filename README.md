@@ -1,3 +1,10 @@
+- [Your Project Name](#your-project-name)
+  - [Description](#description)
+  - [How to run](#how-to-run)
+  - [Base tester flag](#base-tester-flag)
+  - [Imports](#imports)
+    - [Citation](#citation)
+
 ### Deep learning project seed
 Use this seed to start new deep learning / ML projects.
 
@@ -48,15 +55,31 @@ cd SupCon_loss
 pip install -e .   
 pip install -r requirements.txt
  ```   
- Next, run the trainig with:   
+ Next, run the DDP mode training using the following command:   
  ```bash
 # module folder
 cd project
 
-# run module (example: mnist as your main contribution)   
-python cifar_supcon.py --embed_sz 128 --gamma 0.1 --steps 3 4 --data_dir dataset --bs 8 --img_sz 20 --resize 25 --auto_scale_batch_size True     
+# run module   
+cifar_supcon.py --embed_sz 256 --gamma 0.1 --steps 3 4 --data_dir dataset --img_sz 224 --resize 250 --auto_scale_batch_size False --strategy ddp --gpus 2 --precision 16 --batch_size 250 --max_epochs 10 --warmup_epochs 2 --log_every_n_steps 5 --lr 0.0001
 ```
+## Base tester flag
 
+`get_accuracy` has an important flag docs [here](https://kevinmusgrave.github.io/pytorch-metric-learning/testers/) `embeddings_come_from_same_source` which is used to determine if the embeddings are from the same source.
+
+
+Lone query labels 🔥 🗡️ :fork_and_knife:
+
+If some query labels don't appear in the reference set, then it's impossible for those labels to have non-zero k-nn accuracy. Zero accuracy for these labels doesn't indicate anything about the quality of the embedding space. **So these lone query labels are excluded from k-nn based accuracy calculations**.
+
+---
+:hot_pepper: :volcano:  :waning_gibbous_moon:
+
+For example, if the input query_labels is `[0,0,1,1]` and reference_labels is `[1,1,1,2,2]`, then 0 is considered a lone query label.
+
+See more docs here: https://kevinmusgrave.github.io/pytorch-metric-learning/accuracy_calculation/
+
+---
 ## Imports
 This project is setup as a package which means you can now easily import any file into any other file like so:
 ```python

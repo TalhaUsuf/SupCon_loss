@@ -1,6 +1,7 @@
 # supcon loss is a supervised contrastive learning loss. i.e. it needs the labels to perform learning as compared to SimSiam and SimCLR.
 
 #%%
+from rich.console import Console
 from argparse import ArgumentParser
 from torch.optim.lr_scheduler import MultiStepLR
 import torch
@@ -80,6 +81,8 @@ class LitClassifier(pl.LightningModule):
 
     # def validation_step(self, batch, batch_idx):
     def on_train_epoch_end(self):
+    
+    
         '''
         called in the very end of training epoch.
         SEE DOCS HERE:https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html#hooks
@@ -126,35 +129,30 @@ class LitClassifier(pl.LightningModule):
 
     def configure_optimizers(self):
         opt = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
-        # sched = MultiStepLR(opt, milestones=self.hparams.steps, gamma=self.hparams.gamma)
-        
-        
 
-        # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        #     opt, self.hparams.max_epochs, eta_min=0
-        # )
         lr_scheduler = LinearWarmupCosineAnnealingLR(opt, self.warmup_epochs, self.trainer.max_epochs, warmup_start_lr=0.0, eta_min=0.0, last_epoch=- 1)
-        return [opt], [lr_scheduler]
+        return [opt], [
+                            {
+                                # REQUIRED: The scheduler instance
+                                "scheduler": lr_scheduler,
+                                # The unit of the scheduler's step size, could also be 'step'.
+                                # 'epoch' updates the scheduler on epoch end whereas 'step'
+                                # updates it after a optimizer update.
+                                "interval": "epoch",
+                                # How many epochs/steps should pass between calls to
+                                # `scheduler.step()`. 1 corresponds to updating the learning
+                                # rate after every epoch/step.
+                                "frequency": 1,
+                                # Metric to to monitor for schedulers like `ReduceLROnPlateau`
+                                
+                                "name": "scheduler_consine",
+                        }
+                ]
 
-        # return {"optimizer": opt, 
-        #         "lr_scheduler": 
-        #                     {
-        #                             # REQUIRED: The scheduler instance
-        #                             "scheduler": sched,
-        #                             # The unit of the scheduler's step size, could also be 'step'.
-        #                             # 'epoch' updates the scheduler on epoch end whereas 'step'
-        #                             # updates it after a optimizer update.
-        #                             "interval": "epoch",
-        #                             # How many epochs/steps should pass between calls to
-        #                             # `scheduler.step()`. 1 corresponds to updating the learning
-        #                             # rate after every epoch/step.
-        #                             "frequency": 1,
-                                    
-        #                     }
-        # }
+
 
     def get_all_embeddings(self, dataset, model):
-        tester = testers.BaseTester(batch_size = 64, dataloader_num_workers = 8, data_device=self.device)
+        tester = testers.BaseTester(batch_size = 256, dataloader_num_workers = 8, data_device=self.device)
         return tester.get_all_embeddings(dataset, model)
 
     @staticmethod
@@ -195,8 +193,10 @@ class Log_Val(Callback):
     def __init__(self,current_logger):
         self.logger_ = current_logger
             
-    def on_validation_batch_end(
-        self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+    # def on_validation_batch_end(
+    #     self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+    def on_train_batch_end(
+        self, trainer, pl_module, outputs, batch, batch_idx, unused=0):
         
         
         # print(batch[0].shape, batch[1].shape)
@@ -206,19 +206,19 @@ class Log_Val(Callback):
         # which corresponds to our model predictions in this case
         
         # Let's log 20 sample image predictions from first batch
-        
+        # Console().print(outputs)
         # NOTE: in this case, outputs is a float
-        # if batch_idx == 0:
-        n = 20
-        x, y = batch
-        images = [img for img in x[:n]]
-        captions = [f'Ground Truth: {y_i} @ {pr}' for  y_i, pr in zip(y[:n], repeat(outputs) )]
-        # Option 1: log images with `WandbLogger.log_image`
-        self.logger_.log_image(key='Validation Images', images=images, caption=captions)
-        # Option 2: log predictions as a Table
-        columns = ['image', 'ground truth', 'precision_at_1']
-        data = [[wandb.Image(img), gt, p] for img, gt, p in zip(x[:n], y[:n], repeat(outputs))] 
-        self.logger_.log_table(key='Validation Result', columns=columns, data=data)
+        if batch_idx == 0:
+            n = 20
+            x, y = batch
+            images = [img for img in x[:n]]
+            captions = [f'Ground Truth: {y_i} @ loss {tr_loss}' for  y_i, tr_loss in zip(y[:n], repeat(outputs["loss"]) )]
+            # Option 1: log images with `WandbLogger.log_image`
+            self.logger_.log_image(key='Training Images', images=images, caption=captions)
+            # Option 2: log predictions as a Table
+            columns = ['image', 'ground truth', 'Loss']
+            data = [[wandb.Image(img), gt, tl] for img, gt, tl in zip(x[:n], y[:n], repeat(outputs["loss"]))] 
+            self.logger_.log_table(key='Training Result', columns=columns, data=data)
 
 
 
@@ -243,7 +243,7 @@ def cli_main():
     wandb_logger = WandbLogger(
                                 project='CIFAR-10', # group runs in "MNIST" project
                                 log_model='all', # log all new checkpoints during training
-                                name="arcface loss"
+                                name="validation_on_train_epoch_end"
                                     
                                 )
     # wandb_logger.log_artifact(artifact)
