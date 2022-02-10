@@ -99,7 +99,7 @@ class LitClassifier(pl.LightningModule):
                                                             reference = train_embeddings,
                                                             query_labels = test_labels,
                                                             reference_labels = train_labels,
-                                                            embeddings_come_from_same_source=False
+                                                            embeddings_come_from_same_source=True
                                                         )
         
         self.log("mAP", accuracies["mean_average_precision"], sync_dist=True)
